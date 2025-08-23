@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Celebrity Look-a-Like</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <style>
+    .preview-wrapper {
+      position: relative;
+      display: none;
+      margin-top: 1rem;
+    }
+    .preview-img {
+      max-width: 100%;
+      max-height: 300px;
+      border-radius: 0.5rem;
+    }
+    .remove-btn {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.9);
+      border: none;
+      border-radius: 50%;
+      padding: 5px 9px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="d-flex justify-content-center align-items-center vh-100 bg-light">
+
+  <div class="card p-4" style="width: 100%; max-width: 500px;">
+    <h3 class="text-center mb-3">Find Celebrity Looks Like You!</h3>
+
+    <form id="uploadForm">
+      <div class="mb-3">
+        <label class="form-label">Upload Photo</label>
+        <input type="file" class="form-control" id="fileInput" accept="image/*" />
+      </div>
+
+      <div class="mb-3 text-center">
+        <p>OR</p>
+        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#cameraModal">
+           Take a Photo
+        </button>
+      </div>
+
+      <div class="preview-wrapper" id="previewWrapper">
+        <img id="preview" class="preview-img" alt="Preview"/>
+        <button type="button" class="remove-btn" id="removeBtn">Remove</button>
+      </div>
+
+      <div class="text-center mt-3">
+        <button type="submit" class="btn btn-success"> Find Match</button>
+      </div>
+
+      <div class="mt-4" id="resultBox"></div>
+    </form>
+  </div>
+
+ 
+  <div class="modal fade" id="cameraModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content p-3">
+        <video id="cameraStream" autoplay class="w-100 rounded"></video>
+        <button class="btn btn-danger mt-3 w-100" id="captureBtn">📸 Capture</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const fileInput      = document.getElementById("fileInput");
+    const preview        = document.getElementById("preview");
+    const previewWrapper = document.getElementById("previewWrapper");
+    const removeBtn      = document.getElementById("removeBtn");
+    const captureBtn     = document.getElementById("captureBtn");
+    const cameraModal    = document.getElementById("cameraModal");
+    const video          = document.getElementById("cameraStream");
+    const resultBox      = document.getElementById("resultBox");
+    let stream;
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (file) {
+        preview.src = URL.createObjectURL(file);
+        previewWrapper.style.display = "block";
+      }
+    });
+
+ 
+    cameraModal.addEventListener('shown.bs.modal', () => {
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(s => {
+          stream = s;
+          video.srcObject = s;
+        })
+        .catch(() => alert("Camera not available"));
+    });
+    cameraModal.addEventListener('hidden.bs.modal', () => {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+    });
+
+    // Capture from camera
+    captureBtn.addEventListener("click", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      preview.src = canvas.toDataURL("image/jpeg");
+      previewWrapper.style.display = "block";
+      bootstrap.Modal.getInstance(cameraModal).hide();
+    });
+
+    // Remove preview
+    removeBtn.addEventListener("click", () => {
+      previewWrapper.style.display = "none";
+      preview.src = "";
+      fileInput.value = "";
+      resultBox.innerHTML = "";
+    });
+
+    // Form submit: handle both upload & capture
+    document.getElementById("uploadForm").addEventListener("submit", e => {
+      e.preventDefault();
+      resultBox.innerHTML = "";  // clear old results
+      const formData = new FormData();
+
+      let blobPromise;
+      if (fileInput.files.length > 0) {
+        // user uploaded a file
+        blobPromise = Promise.resolve(fileInput.files[0]);
+      } else if (preview.src.startsWith("data:image")) {
+        // user captured a photo
+        blobPromise = fetch(preview.src).then(r => r.blob());
+      } else {
+        return alert("Please upload or capture an image");
+      }
+
+      blobPromise.then(blob => {
+        formData.append("image", blob, "input.jpg");
+        fetch("/match", { method: "POST", body: formData })
+          .then(r => r.json())
+          .then(data => {
+            if (data.match && data.results) {
+              resultBox.innerHTML = `<h5 class="mb-3">Top Matches:</h5>`;
+              data.results.forEach(p => {
+                resultBox.innerHTML += `
+                  <div class="d-flex align-items-center mb-2">
+                    <img src="${p.image}" 
+                         class="me-2 rounded" 
+                         style="width:50px;height:50px;object-fit:cover" 
+                         alt="${p.name}" />
+                    <strong>${p.name}</strong>
+                    <span class="ms-auto">${p.similarity}%</span>
+                  </div>`;
+              });
+            } else {
+              resultBox.innerHTML = `<div class="alert alert-warning">❌ No match found</div>`;
+            }
+          })
+          .catch(() => {
+            resultBox.innerHTML = `<div class="alert alert-danger">❗ Something went wrong</div>`;
+          });
+      });
+    });
+  </script>
+</body>
+</html>
